@@ -78,7 +78,7 @@ def show_loading_spinner(container, message, stage):
     """
     container.markdown(spinner_html, unsafe_allow_html=True)
 
-def show_error_message(container, error_message):
+def show_error_message(error_message):
     """Display error message in a styled container"""
     error_html = f"""
     <div style="
@@ -95,11 +95,13 @@ def show_error_message(container, error_message):
         </div>
     </div>
     """
-    container.markdown(error_html, unsafe_allow_html=True)
+    st.markdown(error_html, unsafe_allow_html=True)
 
-def clear_all_session_data():
-    """Clear all session state data for fresh start"""
-    keys_to_clear = [key for key in st.session_state.keys() if key not in ['query_input']]
+# --- Force Clear All Content ---
+def clear_all():
+    """Force clear all Streamlit elements"""
+    # Clear all keys that might persist
+    keys_to_clear = [k for k in st.session_state.keys() if not k.startswith('_')]
     for key in keys_to_clear:
         del st.session_state[key]
 
@@ -110,7 +112,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Main title with better styling
+# Main title
 st.markdown("""
 <div style="text-align: center; padding: 20px 0 30px 0;">
     <h1 style="
@@ -129,20 +131,17 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Enhanced CSS styling
+# CSS Styling
 st.markdown("""
 <style>
-    /* Hide Streamlit default elements */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Custom styles */
     .stApp {
         background-color: #f8f9fa;
     }
     
-    /* Query input section */
     .query-section {
         background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
         padding: 24px;
@@ -152,7 +151,6 @@ st.markdown("""
         border: 1px solid #e9ecef;
     }
     
-    /* Card sections */
     .card-section {
         background-color: #ffffff;
         padding: 24px;
@@ -165,17 +163,6 @@ st.markdown("""
     
     .card-section:hover {
         box-shadow: 0 6px 16px rgba(0,0,0,0.12);
-    }
-    
-    /* Typography hierarchy */
-    .main-title {
-        font-size: 28px;
-        font-weight: 700;
-        margin-bottom: 12px;
-        margin-top: 0;
-        color: #212529;
-        line-height: 1.3;
-        letter-spacing: -0.3px;
     }
     
     .query-label {
@@ -208,31 +195,6 @@ st.markdown("""
         line-height: 1.4;
     }
     
-    .content-body {
-        font-size: 16px;
-        line-height: 1.7;
-        margin-top: 12px;
-        margin-bottom: 0;
-        color: #495057;
-    }
-    
-    /* Button styling */
-    .stButton > button {
-        background-color: #dc3545;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 8px 16px;
-        font-weight: 500;
-        transition: all 0.2s ease;
-    }
-    
-    .stButton > button:hover {
-        background-color: #c82333;
-        box-shadow: 0 2px 4px rgba(220,53,69,0.2);
-    }
-    
-    /* Input styling */
     .stTextInput > div > div > input {
         border-radius: 8px;
         border: 2px solid #dee2e6;
@@ -248,168 +210,149 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Clear button with better positioning
-col1, col2, col3 = st.columns([1, 1, 1])
-with col3:
-    def clear_results():
-        clear_all_session_data()
-        st.rerun()
-
-    if st.button("Clear Results", help="Clear all previous results and start fresh"):
-        clear_results()
-
-# Query input with enhanced styling
+# Query input
 st.markdown('<div class="query-section">', unsafe_allow_html=True)
 st.markdown('<div class="query-label">What would you like to research?</div>', unsafe_allow_html=True)
-
-# Handle query input and reset logic
-user_query = st.text_input("", placeholder="Enter your research topic or question...", label_visibility="collapsed", key="query_input")
-
-# Check if query has changed and clear session data
-if user_query:
-    if "current_query" not in st.session_state or st.session_state.get("current_query") != user_query:
-        # Clear all previous data for fresh start
-        clear_all_session_data()
-        st.session_state["current_query"] = user_query
-
+user_query = st.text_input("", placeholder="Enter your research topic or question...", label_visibility="collapsed")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# --- Handle Query ---
-if user_query:
-    try:
-        # Create containers for each stage
-        links_container = st.empty()
-        reranked_container = st.empty()
-        context_container = st.empty()
-        article_container = st.empty()
+# Clear everything first
+clear_all()
 
-        # Track processing stages
-        if "stages_completed" not in st.session_state:
-            st.session_state["stages_completed"] = {
-                'search': False,
-                'rerank': False,
-                'context': False,
-                'article': False
-            }
+# Process query
+if user_query and user_query.strip():
+    # Force clear by creating completely new structure
+    content_area = st.container()
+    
+    with content_area:
+        try:
+            # Track what we've shown (reset for each run)
+            shown_cards = {'links': False, 'reranked': False, 'context': False, 'article': False}
+            
+            # Start with loading
+            current_display = st.empty()
+            show_loading_spinner(current_display, "Searching the web for relevant information...", "search")
+            
+            # Stream responses
+            for state_chunk in content_writter_agent.stream(
+                {"query": user_query.strip()},
+                config=config,
+                stream_mode="values"
+            ):
+                # Parse state
+                current_state = None
+                if isinstance(state_chunk, dict):
+                    try:
+                        current_state = AgentState.model_validate(state_chunk)
+                    except Exception:
+                        pass
+                else:
+                    current_state = state_chunk
 
-        # Show initial loading
-        if not st.session_state["stages_completed"]['search']:
-            show_loading_spinner(links_container, "Searching the web for relevant information...", "search")
+                if not current_state:
+                    continue
 
-        for state_chunk in content_writter_agent.stream(
-            {"query": user_query},
-            config=config,
-            stream_mode="values"
-        ):
-            current_state = None
-            if isinstance(state_chunk, dict):
-                try:
-                    current_state = AgentState.model_validate(state_chunk)
-                except Exception:
-                    pass
-            else:
-                current_state = state_chunk
+                # Handle errors
+                if hasattr(current_state, 'error') and current_state.error:
+                    current_display.empty()
+                    show_error_message(current_state.error)
+                    break
 
-            if not current_state:
-                continue
+                # Show Web Search Results
+                if current_state.links and not shown_cards['links']:
+                    current_display.empty()
+                    
+                    # Create new container for links
+                    links_card = st.empty()
+                    links_html = f"""
+                    <div class="card-section">
+                        <div class="section-title">Web Search Results</div>
+                        <div class="section-subtitle">Found {len(current_state.links)} relevant sources</div>
+                        {display_links_horizontal(current_state.links)}
+                    </div>
+                    """
+                    links_card.markdown(links_html, unsafe_allow_html=True)
+                    shown_cards['links'] = True
+                    
+                    # New loading for next stage
+                    current_display = st.empty()
+                    show_loading_spinner(current_display, "Analyzing and ranking the most relevant sources...", "rerank")
 
-            # Check for errors in current state
-            if hasattr(current_state, 'error') and current_state.error:
-                show_error_message(st.empty(), current_state.error)
-                continue
+                # Show Reranked Sources
+                elif current_state.reranked_urls and not shown_cards['reranked']:
+                    current_display.empty()
+                    
+                    # Create new container for reranked
+                    reranked_card = st.empty()
+                    reranked_html = f"""
+                    <div class="card-section">
+                        <div class="section-title">Selected Sources</div>
+                        <div class="section-subtitle">Top {len(current_state.reranked_urls)} most relevant sources</div>
+                        {display_links_horizontal(current_state.reranked_urls)}
+                    </div>
+                    """
+                    reranked_card.markdown(reranked_html, unsafe_allow_html=True)
+                    shown_cards['reranked'] = True
+                    
+                    # New loading for next stage
+                    current_display = st.empty()
+                    show_loading_spinner(current_display, "Extracting and summarizing key information...", "context")
 
-            # Handle Links from Web Search (Stage 1)
-            if current_state.links and not st.session_state["stages_completed"]['search']:
-                # Show links within the same card
-                links_html = (
-                    f'<div class="card-section">'
-                    f'    <div class="section-title">Web Search Results</div>'
-                    f'    <div class="section-subtitle">Found {len(current_state.links)} relevant sources</div>'
-                    f'    {display_links_horizontal(current_state.links)}'
-                    f'</div>'
-                )
+                # Show Editorial Summary
+                elif current_state.context and not shown_cards['context']:
+                    current_display.empty()
+                    
+                    # Create new container for context
+                    context_card = st.empty()
+                    context_html = """
+                    <div class="card-section">
+                        <div class="section-title">Editorial Summary</div>
+                        <div class="section-subtitle">Key insights extracted from selected sources</div>
+                    </div>
+                    """
+                    context_card.markdown(context_html, unsafe_allow_html=True)
+                    
+                    # Add context content
+                    context_content = st.empty()
+                    context_content.markdown("---")
+                    context_content.markdown(current_state.context)
+                    shown_cards['context'] = True
+                    
+                    # New loading for final stage
+                    current_display = st.empty()
+                    show_loading_spinner(current_display, "Generating comprehensive article...", "article")
 
-                links_container.markdown(links_html, unsafe_allow_html=True)
-                
-                st.session_state["stages_completed"]['search'] = True
-                
-                # Show next stage loading
-                if not st.session_state["stages_completed"]['rerank']:
-                    show_loading_spinner(reranked_container, "Analyzing and ranking the most relevant sources...", "rerank")
+                # Show Generated Article
+                elif current_state.article and not shown_cards['article']:
+                    current_display.empty()
+                    
+                    # Create new container for article
+                    article_card = st.empty()
+                    article_html = """
+                    <div class="card-section">
+                        <div class="section-title">Generated Article</div>
+                        <div class="section-subtitle">Comprehensive article based on research findings</div>
+                    </div>
+                    """
+                    article_card.markdown(article_html, unsafe_allow_html=True)
+                    
+                    # Add article content
+                    article_content = st.empty()
+                    article_content.markdown("---")
+                    article_content.markdown(current_state.article)
+                    shown_cards['article'] = True
 
-            # Handle Reranked Links (Stage 2)
-            if current_state.reranked_urls and not st.session_state["stages_completed"]['rerank']:
-                # Show reranked links within the same card
-                reranked_html = (
-                    f'<div class="card-section">'
-                    f'    <div class="section-title">Selected Sources</div>'
-                    f'    <div class="section-subtitle">Top {len(current_state.reranked_urls)} most relevant sources selected</div>'
-                    f'    {display_links_horizontal(current_state.reranked_urls)}'
-                    f'</div>'
-                )
+        except Exception as e:
+            st.error(f"An error occurred: {str(e)}")
+            st.info("Try refreshing the page or rephrasing your query.")
 
-                reranked_container.markdown(reranked_html, unsafe_allow_html=True)
-                
-                st.session_state["stages_completed"]['rerank'] = True
-                
-                # Show next stage loading
-                if not st.session_state["stages_completed"]['context']:
-                    show_loading_spinner(context_container, "Extracting and summarizing key information...", "context")
-
-            # Handle Editorial Summary (Stage 3)
-            if current_state.context and not st.session_state["stages_completed"]['context']:
-                # Display context as markdown
-                context_html = (
-                    f'<div class="card-section">'
-                    f'    <div class="section-title">Editorial Summary</div>'
-                    f'    <div class="section-subtitle">Key insights extracted from selected sources</div>'
-                    f'</div>'
-                )
-
-                context_container.markdown(context_html, unsafe_allow_html=True)
-                
-                # Display context content as markdown
-                with context_container.container():
-                    st.markdown("---")
-                    st.markdown(current_state.context)
-                
-                st.session_state["stages_completed"]['context'] = True
-                
-                # Show final stage loading
-                if not st.session_state["stages_completed"]['article']:
-                    show_loading_spinner(article_container, "Generating comprehensive article...", "article")
-
-            # Handle Generated Article (Stage 4)
-            if current_state.article and not st.session_state["stages_completed"]['article']:
-                # Display article header
-                article_html = (
-                    f'<div class="card-section">'
-                    f'    <div class="section-title">Generated Article</div>'
-                    f'    <div class="section-subtitle">Comprehensive article based on research findings</div>'
-                    f'</div>'
-                )
-
-                article_container.markdown(article_html, unsafe_allow_html=True)
-                
-                # Display article content as proper markdown
-                with article_container.container():
-                    st.markdown("---")
-                    st.markdown(current_state.article)
-                
-                st.session_state["stages_completed"]['article'] = True
-
-    except Exception as e:
-        # Clear any remaining loading indicators and show error
-        st.error(f"An error occurred: {str(e)}")
-        st.info("Try refreshing the page or rephrasing your query.")
+elif user_query and not user_query.strip():
+    show_error_message("Please enter a valid research topic or question.")
 
 # Footer
-st.markdown(
-    (
-        f'<div style="text-align: center; padding: 40px 0 20px 0; color: #6c757d; font-size: 14px;">'
-        f'    <hr style="border: none; height: 1px; background-color: #dee2e6; margin-bottom: 20px;">'
-        f'    Powered by LangGraph AI • Built with Streamlit'
-        f'</div>'
-    ),
-    unsafe_allow_html=True
-)
+st.markdown("""
+<div style="text-align: center; padding: 40px 0 20px 0; color: #6c757d; font-size: 14px;">
+    <hr style="border: none; height: 1px; background-color: #dee2e6; margin-bottom: 20px;">
+    Powered by LangGraph AI • Built with Streamlit
+</div>
+""", unsafe_allow_html=True)
