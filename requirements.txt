@@ -1,0 +1,11 @@
+sentence-transformers
+langchain
+langchain-community
+langchain-experimental
+langchain-google-genai
+langchain-tavily
+langgraph
+unstructured
+beautifulsoup4
+huggingface-hub
+python-dotenv
