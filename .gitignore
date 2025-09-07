@@ -1,5 +1,27 @@
+# Environment variables
 .env
-searheng\
-recommend1.txt
-recommend2.txt
+.venv
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build files
+dist/
+build/
+*.egg-info/
+
+recommed1.txt
+recommed2.txt
 search.txt

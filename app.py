@@ -1,5 +1,12 @@
 import streamlit as st
+import sys
+import os
 from urllib.parse import urlparse
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
+
+
 from src.states.search_states import AgentState
 from src.graphs.search_graphs import content_writter_agent, config
 
